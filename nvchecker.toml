@@ -1,0 +1,13 @@
+[__config__]
+oldver = "nvchecker_oldver.json"
+# keyfile = "nvchecker_keyfile.json"
+newver = "nvchecker_newver.json"
+
+[paseo-desktop-bin]
+source = "github"
+github = "getpaseo/paseo"
+use_latest_release = true
+# 或者使用正则表达式匹配 tag
+# use_max_tag = true
+prefix = "v"
+

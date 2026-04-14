@@ -1,0 +1,128 @@
+name: Update AUR Package(paseo)
+
+on:
+  schedule:
+    - cron: "0 */4 * * *" # 每4小时
+  workflow_dispatch:
+permissions:
+    contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel # 直接使用包含 base-devel 的镜像
+    steps:
+      - name: Pre-install Git
+        run: |
+          pacman -Syu --noconfirm git
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for updates
+        id: nvchecker
+        run: |
+          # 1. 安装官方 nvchecker
+          pacman -Syu --noconfirm python python-pip
+          pip install nvchecker --break-system-packages
+          
+          # 2. 运行检查
+          # 注意：第一次运行时，因为没有旧版本记录，它会把当前最新版视为"新版本"
+          nvchecker -c nvchecker.toml
+          
+          # 3. 获取比较结果
+          # nvcmp 会输出类似 "package: old_ver -> new_ver" 的内容
+          # 如果没有更新，变量为空
+          output=$(nvcmp -c nvchecker.toml)
+          
+          echo "Check result: $output"
+          
+          if [ -n "$output" ]; then
+            # 提取版本号 (假设 output 格式为: name: old -> new)
+            # awk '{print $4}' 取第4列，即新版本号
+            new_ver=$(echo "$output" | awk '{print $4}')
+            
+            echo "New version detected: $new_ver"
+            
+            # 将结果写入 GitHub Outputs 供后续步骤使用
+            echo "version=$new_ver" >> $GITHUB_OUTPUT
+
+            mv nvchecker_newver.json nvchecker_oldver.json
+          else
+            echo "No updates found."
+            echo "version=" >> $GITHUB_OUTPUT
+          fi
+
+      # 2. 如果有更新，进行打包处理
+      - name: Update PKGBUILD
+        if: steps.nvchecker.outputs.version != '' && steps.nvchecker.outputs.version != null
+        env:
+          NEW_VER: ${{ steps.nvchecker.outputs.version }}
+        run: |
+          # 安装依赖
+          pacman -Syu --noconfirm git pacman-contrib
+          
+          # 修改版本号
+          sed -i "s/^pkgver=.*/pkgver=\"$NEW_VER\"/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+
+      - name: Verify Build
+        if: steps.nvchecker.outputs.version != '' && steps.nvchecker.outputs.version != null
+        run: |
+          # 1. 创建一个名为 builder 的普通用户 (makepkg 不允许 root)
+          useradd -m builder
+          # 2. 赋予该用户 sudo 权限 (安装依赖需要)
+          echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
+          # 3. 修正当前目录权限，让 builder 能读写
+          chown -R builder:builder .
+          
+          # 4. 切换身份运行构建
+          # 更新 checksums
+          su builder -c "updpkgsums"
+
+          # -s: 自动安装依赖
+          # -i: 构建后安装 (测试 package() 阶段)
+          # --noconfirm: 不询问确认
+          # --clean: 清理
+          # || exit 1: 如果失败，确保这一步返回错误码，中断 Workflow
+          su builder -c "makepkg -si --noconfirm --clean && makepkg --printsrcinfo > .SRCINFO" || exit 1
+          
+          echo "构建验证通过！准备发布..."
+
+      - name: Publish to AUR
+        if: steps.nvchecker.outputs.version != '' && steps.nvchecker.outputs.version != null && success()
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          NEW_VER: ${{ steps.nvchecker.outputs.version }}
+        run: |
+          # 安装依赖
+          pacman -Syu --noconfirm openssh      
+          # 配置 SSH 并推送 (代码同之前的回答)
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          export GIT_SSH_COMMAND='ssh -i ~/.ssh/aur -o StrictHostKeyChecking=no'
+          
+          git clone ssh://aur@aur.archlinux.org/paseo-desktop-bin.git aur-repo
+          cp PKGBUILD .SRCINFO aur-repo/
+          cd aur-repo
+          
+          git config user.name 'huochenghai'
+          git config user.email 'huochenghai@gmail.com'
+          git add -f PKGBUILD .SRCINFO
+          git diff-index --quiet HEAD || git commit -m "Update to $NEW_VER"
+          git push
+
+          cd "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "*"
+          git config user.name 'huochenghai'
+          git config user.email 'huochenghai@gmail.com'
+          git add PKGBUILD .SRCINFO nvchecker_oldver.json
+          if git diff --staged --quiet; then
+            exit 0
+          else
+            git commit -m "Auto update state to $NEW_VER"
+            git push
+          fi
+
