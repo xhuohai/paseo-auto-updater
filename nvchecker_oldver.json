@@ -2,9 +2,9 @@
   "version": 2,
   "data": {
     "paseo-desktop-bin": {
-      "version": "0.1.80",
-      "gitref": "refs/tags/v0.1.80",
-      "url": "https://github.com/getpaseo/paseo/releases/tag/v0.1.80"
+      "version": "0.1.81",
+      "gitref": "refs/tags/v0.1.81",
+      "url": "https://github.com/getpaseo/paseo/releases/tag/v0.1.81"
     }
   }
 }
