@@ -2,10 +2,10 @@
   "version": 2,
   "data": {
     "paseo-desktop-bin": {
-      "version": "0.6.1",
-      "gitref": "refs/tags/v0.6.1",
-      "url": "https://github.com/getpaseo/paseo/releases/tag/v0.6.1",
-      "creation_time": "2026-08-25T19:53:21Z"
+      "version": "0.7.0",
+      "gitref": "refs/tags/v0.7.0",
+      "url": "https://github.com/getpaseo/paseo/releases/tag/v0.7.0",
+      "creation_time": "2026-08-31T17:29:06Z"
     }
   }
 }
